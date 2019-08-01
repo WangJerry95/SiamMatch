@@ -12,7 +12,7 @@ parser.add_argument('--resume', default='', type=str, required=True,
                     metavar='PATH',help='path to latest checkpoint (default: none)')
 parser.add_argument('--config', dest='config', default='config_davis.json',
                     help='hyper-parameter of SiamMask in json format')
-parser.add_argument('--base_path', default='../../data/tennis', help='datasets')
+parser.add_argument('--base_path', default='../data/tennis', help='datasets')
 parser.add_argument('--cpu', action='store_true', help='cpu mode')
 args = parser.parse_args()
 
@@ -59,8 +59,14 @@ if __name__ == '__main__':
             im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
             cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
             cv2.imshow('SiamMask', im)
-            key = cv2.waitKey(1)
-            if key > 0:
+            key = cv2.waitKey(100)
+            if key == 32:
+                key = cv2.waitKey(0)
+                if key == 32:
+                    continue
+                elif key > 0:
+                    break
+            elif key > 0:
                 break
 
         toc += cv2.getTickCount() - tic
