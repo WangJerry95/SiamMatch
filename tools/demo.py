@@ -12,9 +12,10 @@ parser.add_argument('--resume', default='', type=str, required=True,
                     metavar='PATH',help='path to latest checkpoint (default: none)')
 parser.add_argument('--config', dest='config', default='config_davis.json',
                     help='hyper-parameter of SiamMask in json format')
-parser.add_argument('--base_path', default='../data/tennis', help='datasets')
+parser.add_argument('--base_path', default='../data/test/changzhou/2', help='datasets')
 parser.add_argument('--cpu', action='store_true', help='cpu mode')
 args = parser.parse_args()
+
 
 if __name__ == '__main__':
     # Setup device
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     ims = [cv2.imread(imf) for imf in img_files]
 
     # Select ROI
-    cv2.namedWindow("SiamMask", cv2.WND_PROP_FULLSCREEN)
+    cv2.namedWindow("SiamMask")
     # cv2.setWindowProperty("SiamMask", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     try:
         init_rect = cv2.selectROI('SiamMask', ims[0], False, False)
@@ -50,12 +51,11 @@ if __name__ == '__main__':
         if f == 0:  # init
             target_pos = np.array([x + w / 2, y + h / 2])
             target_sz = np.array([w, h])
-            state = siamese_init(im, target_pos, target_sz, siammask, cfg['hp'], device=device)  # init tracker
+            state = siamese_init(im, target_pos, target_sz, siammask, cfg['hp'], device=device)   # init tracker
         elif f > 0:  # tracking
-            state = siamese_track(state, im, mask_enable=True, refine_enable=True, device=device)  # track
+            state = siamese_track(state, im, mask_enable=True, refine_enable=True, device=device, debug=False)  # track
             location = state['ploygon'].flatten()
             mask = state['mask'] > state['p'].seg_thr
-
             im[:, :, 2] = (mask > 0) * 255 + (mask == 0) * im[:, :, 2]
             cv2.polylines(im, [np.int0(location).reshape((-1, 1, 2))], True, (0, 255, 0), 3)
             cv2.imshow('SiamMask', im)

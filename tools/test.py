@@ -65,6 +65,17 @@ def im_to_torch(img):
 
 
 def get_subwindow_tracking(im, pos, model_sz, original_sz, avg_chans, out_mode='torch'):
+    """
+    Crop exemplar and search image out of the original image, if the crop box exceed the orignal image, then pad it with
+    channel-wise mean value.
+    :param im:the whole image
+    :param pos: target position that are selected
+    :param model_sz: the image size that are accepted by the model
+    :param original_sz: the crop size
+    :param avg_chans: channel-wise average value
+    :param out_mode: torch or numpy
+    :return: croped image
+    """
     if isinstance(pos, float):
         pos = [pos, pos]
     sz = original_sz
@@ -130,6 +141,16 @@ def generate_anchor(cfg, score_size):
 
 
 def siamese_init(im, target_pos, target_sz, model, hp=None, device='cpu'):
+    """
+    generate anchors, inference the template image, set up window
+    :param im: whole image
+    :param target_pos: target position that are selected
+    :param target_sz: target size that are selected
+    :param model: SiamMask model
+    :param hp: hyper parameters
+    :param device:
+    :return:
+    """
     state = dict()
     state['im_h'] = im.shape[0]
     state['im_w'] = im.shape[1]
@@ -142,14 +163,17 @@ def siamese_init(im, target_pos, target_sz, model, hp=None, device='cpu'):
     p.scales = model.anchors['scales']
     p.ratios = model.anchors['ratios']
     p.anchor_num = model.anchor_num
-    p.anchor = generate_anchor(model.anchors, p.score_size)
+    p.anchor = generate_anchor(model.anchors, p.score_size) # anchor size: (25*25*5, 4) --> (3125, 4)
     avg_chans = np.mean(im, axis=(0, 1))
 
     wc_z = target_sz[0] + p.context_amount * sum(target_sz)
     hc_z = target_sz[1] + p.context_amount * sum(target_sz)
-    s_z = round(np.sqrt(wc_z * hc_z))
+    s_z = round(np.sqrt(wc_z * hc_z))  # crop size = sqrt((w+(w+h)/2)*(h+(w+h)/2))
     # initialize the exemplar
-    z_crop = get_subwindow_tracking(im, target_pos, p.exemplar_size, s_z, avg_chans)
+    im_patch = get_subwindow_tracking(im, target_pos, p.exemplar_size, s_z, avg_chans, out_mode="numpy")
+    cv2.imshow('crop_template', im_patch)
+    cv2.waitKey(0)
+    z_crop = im_to_torch(im_patch)
 
     z = Variable(z_crop.unsqueeze(0))
     net.template(z.to(device))
@@ -181,9 +205,10 @@ def siamese_track(state, im, mask_enable=False, refine_enable=False, device='cpu
     hc_x = target_sz[0] + p.context_amount * sum(target_sz)
     s_x = np.sqrt(wc_x * hc_x)
     scale_x = p.exemplar_size / s_x
-    d_search = (p.instance_size - p.exemplar_size) / 2
-    pad = d_search / scale_x
-    s_x = s_x + 2 * pad
+    # d_search = (p.instance_size - p.exemplar_size) / 2
+    # pad = d_search / scale_x
+    # s_x = s_x + 2 * pad
+    s_x = s_x * 4
     crop_box = [target_pos[0] - round(s_x) / 2, target_pos[1] - round(s_x) / 2, round(s_x), round(s_x)]
 
     if debug:
@@ -226,11 +251,14 @@ def siamese_track(state, im, mask_enable=False, refine_enable=False, device='cpu
 
     # size penalty
     target_sz_in_crop = target_sz*scale_x
+    # if predicted size < 127, then scale penalty = 127 / predicted_size, if predicted_size > 127, then scale penalty = predicted_size / 127
     s_c = change(sz(delta[2, :], delta[3, :]) / (sz_wh(target_sz_in_crop)))  # scale penalty
+    # put penalty on aspect ratio change, the same way as the size change
     r_c = change((target_sz_in_crop[0] / target_sz_in_crop[1]) / (delta[2, :] / delta[3, :]))  # ratio penalty
 
     penalty = np.exp(-(r_c * s_c - 1) * p.penalty_k)
     pscore = penalty * score
+    # pscore = score
 
     # cos window (motion model)
     pscore = pscore * (1 - p.window_influence) + window * p.window_influence
