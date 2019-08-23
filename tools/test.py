@@ -140,7 +140,7 @@ def generate_anchor(cfg, score_size):
     return anchor
 
 
-def siamese_init(im, target_pos, target_sz, model, hp=None, device='cpu'):
+def siamese_init(im, search_shape, target_pos, target_sz, model, hp=None, device='cpu'):
     """
     generate anchors, inference the template image, set up window
     :param im: whole image
@@ -152,8 +152,8 @@ def siamese_init(im, target_pos, target_sz, model, hp=None, device='cpu'):
     :return:
     """
     state = dict()
-    state['im_h'] = im.shape[0]
-    state['im_w'] = im.shape[1]
+    state['im_h'] = search_shape[0]
+    state['im_w'] = search_shape[1]
     p = TrackerConfig()
     p.update(hp, model.anchors)
 
@@ -166,11 +166,14 @@ def siamese_init(im, target_pos, target_sz, model, hp=None, device='cpu'):
     p.anchor = generate_anchor(model.anchors, p.score_size) # anchor size: (25*25*5, 4) --> (3125, 4)
     avg_chans = np.mean(im, axis=(0, 1))
 
-    wc_z = target_sz[0] + p.context_amount * sum(target_sz)
-    hc_z = target_sz[1] + p.context_amount * sum(target_sz)
-    s_z = round(np.sqrt(wc_z * hc_z))  # crop size = sqrt((w+(w+h)/2)*(h+(w+h)/2))
-    # initialize the exemplar
-    im_patch = get_subwindow_tracking(im, target_pos, p.exemplar_size, s_z, avg_chans, out_mode="numpy")
+    # wc_z = target_sz[0] + p.context_amount * sum(target_sz)
+    # hc_z = target_sz[1] + p.context_amount * sum(target_sz)
+    # s_z = round(np.sqrt(wc_z * hc_z))  # crop size = sqrt((w+(w+h)/2)*(h+(w+h)/2))
+    ## initialize the exemplar
+    #im_patch = get_subwindow_tracking(im, target_pos, p.exemplar_size, s_z, avg_chans, out_mode="numpy")
+    im_patch = im
+    im_patch = cv2.resize(im_patch, (p.exemplar_size, p.exemplar_size))
+
     cv2.imshow('crop_template', im_patch)
     cv2.waitKey(0)
     z_crop = im_to_torch(im_patch)
@@ -201,14 +204,14 @@ def siamese_track(state, im, mask_enable=False, refine_enable=False, device='cpu
     target_pos = state['target_pos']
     target_sz = state['target_sz']
 
-    wc_x = target_sz[1] + p.context_amount * sum(target_sz)
-    hc_x = target_sz[0] + p.context_amount * sum(target_sz)
+    wc_x = target_sz[1] #+ p.context_amount * sum(target_sz)
+    hc_x = target_sz[0] #+ p.context_amount * sum(target_sz)
     s_x = np.sqrt(wc_x * hc_x)
     scale_x = p.exemplar_size / s_x
     # d_search = (p.instance_size - p.exemplar_size) / 2
     # pad = d_search / scale_x
     # s_x = s_x + 2 * pad
-    s_x = s_x * 4
+    s_x = s_x * 2
     crop_box = [target_pos[0] - round(s_x) / 2, target_pos[1] - round(s_x) / 2, round(s_x), round(s_x)]
 
     if debug:
@@ -263,6 +266,8 @@ def siamese_track(state, im, mask_enable=False, refine_enable=False, device='cpu
     # cos window (motion model)
     pscore = pscore * (1 - p.window_influence) + window * p.window_influence
     best_pscore_id = np.argmax(pscore)
+    best_pscore = pscore[best_pscore_id]
+    state['best_pscore'] = best_pscore
 
     pred_in_crop = delta[:, best_pscore_id] / scale_x
     lr = penalty[best_pscore_id] * score[best_pscore_id] * p.lr  # lr for OTB
